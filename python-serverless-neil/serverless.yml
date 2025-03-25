@@ -1,0 +1,76 @@
+org: juswa123
+service: python-serverless-neil
+
+provider:
+  name: aws
+  runtime: python3.12
+  region: ap-southeast-2
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action: 
+        - "*"
+      Resource: "*"
+
+functions:
+  hello:
+    handler: handler.hello
+    events:
+      - http:
+          path: /
+          method: get
+          cors: true  # CORS configuration if needed
+
+  getAllProducts:
+    handler: handler.get_all_products
+    events:
+      - http:
+          path: /products
+          method: get
+          cors: true
+
+  getOneProduct:
+    handler: handler.get_one_product
+    events:
+      - http:
+          path: /products/{product_id}
+          method: get
+          cors: true
+
+  createOneProduct:
+    handler: handler.create_one_product
+    events:
+      - http:
+          path: /products
+          method: post
+          cors: true
+
+  deleteOneProduct:
+    handler: handler.delete_one_product
+    events:
+      - http:
+          path: /products/{product_id}
+          method: delete
+          cors: true
+
+  updateProduct:
+    handler: handler.update_product
+    events:
+      - http:
+          path: /products/{product_id}
+          method: put
+          cors: true
+
+  addStockstoProduct:
+    handler: handler.add_stocks_to_product
+    events:
+      - http:
+          path: /products/{product_id}/add-stock
+          method: post
+          cors: true
+  batchCreateProducts:
+    handler: handler.batch_create_products
+    events:
+      - s3:
+          bucket: products-s3bucket-neil
+          event: s3:ObjectCreated:*
+          existing: true
