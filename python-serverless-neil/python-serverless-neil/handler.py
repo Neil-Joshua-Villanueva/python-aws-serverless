@@ -1,4 +1,5 @@
 import json
+import urllib.request
 import boto3
 from decimal import Decimal
 from datetime import datetime
@@ -9,6 +10,7 @@ import os
 import string
 import random
 import time
+import base64
 
 
 class DecimalEncoder(json.JSONEncoder):
@@ -259,6 +261,53 @@ def batch_create_products(event, context):
     
     print("All done!")
     return {}
+def batch_delete_products(event, context):
+    print("file uploaded trigger")
+    print(event)
+    
+    print("Extract file location from event payload")
+    bucket = event['Records'][0]['s3']['bucket']['name']
+    key = urllib.parse.unquote_plus(event['Records'][0]['s3']['object']['key'])
+     # Define the target directory and filename path
+    localDirectory = '/tmp/for_delete'
+    localFilename = os.path.join(localDirectory, key.split('/')[-1])
+    
+    print(f"Target directory: {localDirectory}")
+    print(f"Target file path: {localFilename}")
+
+    # Ensure the subdirectory exists
+    if not os.path.exists(localDirectory):
+        print(f"Directory does not exist. Creating directory: {localDirectory}")
+        os.makedirs(localDirectory)
+    else:
+        print(f"Directory already exists: {localDirectory}")
+
+    s3_client = boto3.client('s3', region_name='ap-southeast-2')
+    
+    print("downloaded file to /tmp folder")
+    s3_client.download_file(bucket, key, localFilename)
+    
+    print("reading CSV file and looping it over...")
+    if "for_delete/" in key:
+        with open(localFilename, 'r') as f:
+            csv_reader = csv.DictReader(f)
+            required_keys = ["product_id"]
+            table_name = "product-neil" 
+            dynamodb = boto3.resource('dynamodb', region_name='ap-southeast-2')
+            table = dynamodb.Table(table_name)
+            for row in csv_reader:
+                if "product_id" in row:  # Ensure product_id is present in the row
+                    product_id = row["product_id"]
+                    print(f"Attempting to delete product with ID: {product_id}")
+                    table.delete_item(
+                        Key={
+                            "product_id": product_id  # Assuming the primary key is product_id
+                        }
+                    )
+                    print(f"Successfully deleted product with ID: {product_id}")
+
+    print("All done!")
+    return {}
 def generate_code(prefix, string_length):
   letters = string.ascii_uppercase
   return prefix + ''.join(random.choice(letters) for i in range(string_length))
@@ -287,3 +336,73 @@ def receive_message_from_sqs(event, context):
         
     print("All done!")
     return {}
+
+def upload_s3event(event, context):
+    s3_client = boto3.client('s3')
+    S3_BUCKET_NAME = 'products-s3bucket-neil'
+    process = json.loads(event.get("body", "{}")).get("process")
+    # Extract the file content and metadata from the incoming request
+    try:
+        # Get the file content (Base64 encoded, if that's how it's sent)
+        file_data = event['body']
+        
+        # Check if the content is Base64 encoded
+        if event.get('isBase64Encoded', False):
+            file_data = base64.b64decode(file_data)  # Decode Base64 data if it's encoded
+        
+        # Ensure that file_data is not empty after decoding
+        if not file_data:
+            raise ValueError("File data is empty after decoding.")
+        
+        # Extract the file name from the headers or the request body (if passed)
+        upload_url = event['headers'].get('file-name', 'default_file_name.txt')  # You may pass filename in headers
+        download_url = urllib.request.urlopen(upload_url)
+        parsed_url = urllib.parse.urlparse(upload_url)
+    
+        # Extract the path from the URL
+        path = parsed_url.path
+        if 'file_' in path:
+            file_name = path.split('file_')[-1]
+        # Get the file name from the path (after the last '/')
+        file_name = file_name.split('_')[-1]
+        file_name = file_name.split('/')[-1]
+
+        
+        file_data = download_url.read()
+    
+        s3_file_key = f'{process}/{file_name}'  # Store the file in the "for_create" folder
+
+        # Check if the S3 key length exceeds the allowed limit
+        MAX_KEY_LENGTH = 1024
+        if len(s3_file_key) > MAX_KEY_LENGTH:
+            raise ValueError(f"S3 key is too long: {len(s3_file_key)} characters.")
+
+        # Log the size of the file to ensure it's not empty
+        print(f"Uploading file with size: {len(file_data)} bytes")
+
+        # Upload file to S3
+        response = s3_client.put_object(
+            Bucket=S3_BUCKET_NAME,
+            Key=s3_file_key,
+            Body=file_data
+        )
+
+        # Return a success message with the S3 file URL
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': 'File uploaded successfully!',
+                'file_url': f'https://{S3_BUCKET_NAME}.s3.amazonaws.com/{s3_file_key}'
+            })
+        }
+
+    except Exception as e:
+        # In case of an error, return the error message
+        print(f"Error: {str(e)}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'message': 'Failed to upload the file.',
+                'error': str(e)
+            })
+        }

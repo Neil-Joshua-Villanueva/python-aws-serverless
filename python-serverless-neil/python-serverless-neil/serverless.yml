@@ -72,8 +72,19 @@ functions:
     events:
       - s3:
           bucket: products-s3bucket-neil
-          event: s3:ObjectCreated:*
+          event: s3:ObjectCreated:Put
           existing: true
+          rules:
+            - prefix: for_create/
+  batchDeleteProducts:
+    handler: handler.batch_delete_products 
+    events:
+      - s3:
+          bucket: products-s3bucket-neil  
+          event: s3:ObjectCreated:*  
+          existing: true 
+          rules:
+            - prefix: for_delete/  
   queueCreate:
     handler: handler.receive_message_from_sqs
     events:
@@ -86,3 +97,11 @@ functions:
     events:
       - sqs:
           arn: arn:aws:sqs:ap-southeast-2:874957933250:product-queue-neil
+  uploadS3Event:
+    handler: handler.upload_s3event
+    events:
+      - http:
+          path: upload
+          method: post
+          cors: true
+      
